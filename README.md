@@ -1,2 +1,4 @@
-# marwan-esam-Unit-testing-2
-Assignment repo for assignment/1-11 (Unit testing 2)
+# Simulation Unit Testing Assignment
+
+- **Student Name:** Marwan Mohamed Esam
+- **Group / ID:** 2
