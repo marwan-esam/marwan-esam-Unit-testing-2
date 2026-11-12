@@ -1,9 +1,11 @@
+using AutoFixture;
 using FluentAssertions;
 using Moq;
 using Simulation.Checkout.Application;
 using Simulation.Checkout.Application.Abstractions;
 using Simulation.Checkout.Domain;
 using Simulation.Checkout.Domain.Exceptions;
+using Simulation.Checkout.Tests.TestData;
 
 namespace Simulation.Checkout.Tests;
 
@@ -25,14 +27,14 @@ public class CheckoutServiceTests
   {
     {
       [
-        new OrderItem { ProductId = Guid.NewGuid(), ProductName = "Laptop", Quantity = 2, UnitPrice = 150m },
-        new OrderItem { ProductId = Guid.NewGuid(), ProductName = "Keyboard", Quantity = 1, UnitPrice = 400m }
+        CreateOrderItem(quantity: 2, unitPrice: 150m),
+        CreateOrderItem(quantity: 1, unitPrice: 400m)
       ],
       700m, 0m, 700m
     },
     {
       [
-        new OrderItem { ProductId = Guid.NewGuid(), ProductName = "Camera", Quantity = 3, UnitPrice = 500m }
+        CreateOrderItem(quantity: 3, unitPrice: 500m)
       ],
       1500m, 100m, 1400m
     }
@@ -71,7 +73,7 @@ public class CheckoutServiceTests
   public async Task CheckoutAsync_WhenQuantityIsZeroOrNegative_ShouldThrowInvalidQuantityException(int quantity)
   {
     // Arrange
-    var order = CreateOrderWithItems(new OrderItem() { ProductId = Guid.NewGuid(), ProductName = "Laptop", Quantity = quantity, UnitPrice = 500m});
+    var order = CreateOrderWithItems(CreateOrderItem(quantity: quantity));
     
     // Act
     var act = () => _checkoutService.CheckoutAsync(order);
@@ -84,7 +86,7 @@ public class CheckoutServiceTests
   public async Task CheckoutAsync_WhenPriceIsNegative_ShouldThrowInvalidPriceException()
   {
     // Arrange
-    var order = CreateOrderWithItems(new OrderItem() { ProductId = Guid.NewGuid(), ProductName = "Laptop", Quantity = 3, UnitPrice = -0.01m});
+    var order = CreateOrderWithItems(CreateOrderItem(unitPrice: -0.01m));
     
     // Act
     var act = () => _checkoutService.CheckoutAsync(order);
@@ -97,7 +99,7 @@ public class CheckoutServiceTests
   public async Task CheckoutAsync_WhenPriceIsZero_ShouldSucceed()
   {
     // Arrange
-    var order = CreateOrderWithItems(new OrderItem() { ProductId = Guid.NewGuid(), ProductName = "Laptop", Quantity = 3, UnitPrice = 0});
+    var order = CreateOrderWithItems(CreateOrderItem(unitPrice: 0));
     
     // Act
     var receipt = await _checkoutService.CheckoutAsync(order);
@@ -112,7 +114,7 @@ public class CheckoutServiceTests
   public async Task CheckoutAsync_WhenGivenSubtotal_ShouldReturnExpectedDiscount(decimal subtotal, decimal discount)
   {
     // Arrange
-    var order = CreateOrderWithItems(new OrderItem() { ProductId = Guid.NewGuid(), ProductName = "Laptop", Quantity = 1, UnitPrice = subtotal});
+    var order = CreateOrderWithItems(CreateOrderItem(unitPrice: subtotal));
 
     // Act
     var receipt = await _checkoutService.CheckoutAsync(order);
@@ -141,9 +143,7 @@ public class CheckoutServiceTests
   public async Task CheckoutAsync_WhenOrderIsValidAndInStock_ShouldSaveOrderAndSendConfirmation()
   {
     // Arrange
-    var order = CreateOrderWithItems(
-      new OrderItem() { ProductId = Guid.NewGuid(), ProductName = "keyboard", Quantity = 2, UnitPrice = 500m}
-    );
+    var order = CreateOrderWithItems(CreateOrderItem(quantity: 2, unitPrice: 500m));
 
     // Act
     var receipt = await _checkoutService.CheckoutAsync(order);
@@ -192,10 +192,57 @@ public class CheckoutServiceTests
     _orderRepositoryMock.Verify(orderRepo => orderRepo.SaveAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
     _notificationServiceMock.Verify(notificationServ => notificationServ.SendOrderConfirmationAsync(It.IsAny<CheckoutReceipt>(), It.IsAny<CancellationToken>()), Times.Never);
   }
+
+  [Fact]
+  public async Task CheckoutAsync_WhenGivenOrderWithCustomizedOrderItems_ShouldSucceed()
+  {
+    // Arrange
+    var fixture = new Fixture();
+    fixture.Customize(new OrderItemCustomization());
+    var order = fixture.Create<Order>();
+  
+    // Act
+    var receipt = await _checkoutService.CheckoutAsync(order);
+
+    // Assert
+    receipt.Should().NotBeNull();
+    receipt.Items.Should().NotBeEmpty()
+    .And.AllSatisfy(item => 
+    {
+      item.Quantity.Should().BeGreaterThan(0);
+      item.UnitPrice.Should().BeGreaterThanOrEqualTo(0);
+    }); // this shouldn't affect test performance, because auto fixture only puts 3 items into any list
+    
+  }
+
+  [Fact]
+  public async Task CheckoutAsync_WhenGivenFakeOrder_ShouldReturnReceiptWithSameNameAndEmail()
+  {
+    // Arrange
+    var fixture = new Fixture();
+    fixture.Customize(new BogusCustomerCustomization());
+    var order = fixture.Create<Order>();
+
+    // Act
+    var receipt = await _checkoutService.CheckoutAsync(order);
+
+    // Assert
+    receipt.Should().NotBeNull();
+    receipt.CustomerName.Should().Be(order.CustomerName);
+    receipt.CustomerEmail.Should().Be(order.CustomerEmail);
+  }
   private static Order CreateOrderWithItems(params OrderItem[] items) => new Order()
   {
     CustomerName = "Marwan Mohamed",
     CustomerEmail = "marwan@gmail.com",
     Items = items
+  };
+
+  private static OrderItem CreateOrderItem(string productName = "Laptop", int quantity = 1, decimal unitPrice = 10m) => new OrderItem()
+  {
+    ProductId = Guid.NewGuid(),
+    ProductName = productName,
+    Quantity = quantity,
+    UnitPrice = unitPrice,
   };
 }
